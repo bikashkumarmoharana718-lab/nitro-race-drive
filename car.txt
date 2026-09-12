@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D City Racing</title>
+
+<style>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #111;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+#game {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+canvas {
+  display: block;
+}
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: white;
+}
+
+#title {
+  position: absolute;
+  top: 18px;
+  left: 22px;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-shadow: 0 3px 8px #000;
+}
+
+#speedBox {
+  position: absolute;
+  right: 22px;
+  top: 18px;
+  background: rgba(0,0,0,.55);
+  padding: 12px 18px;
+  border-radius: 12px;
+  min-width: 150px;
+  text-align: center;
+  border: 1px solid rgba(255,255,255,.2);
+}
+
+#speed {
+  font-size: 30px;
+  font-weight: bold;
+}
+
+#unit {
+  font-size: 12px;
+  opacity: .7;
+}
+
+#score {
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+#help {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,.6);
+  padding: 10px 18px;
+  border-radius: 30px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+#loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #10141c;
+  color: white;
+  z-index: 20;
+  font-size: 20px;
+  letter-spacing: 2px;
+}
+
+#message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0,0,0,.8);
+  padding: 24px 35px;
+  border-radius: 15px;
+  text-align: center;
+  display: none;
+  pointer-events: auto;
+}
+
+#message h2 {
+  margin-bottom: 12px;
+}
+
+button {
+  border: 0;
+  padding: 10px 22px;
+  border-radius: 8px;
+  background: #e22;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+}
+</style>
+</head>
+
+<body>
+
+<div id="game">
+
+  <div id="loading">LOADING 3D CAR...</div>
+
+  <div id="hud">
+    <div id="title">CITY RACING</div>
+
+    <div id="speedBox">
+      <div id="speed">0</div>
+      <div id="unit">KM/H</div>
+      <div id="score">DISTANCE: 0 m</div>
+    </div>
+
+    <div id="help">
+      W / ↑ Accelerate &nbsp; • &nbsp;
+      S / ↓ Brake &nbsp; • &nbsp;
+      A D / ← → Steer
+    </div>
+  </div>
+
+  <div id="message">
+    <h2>CRASH!</h2>
+    <p id="finalScore"></p>
+    <br>
+    <button onclick="restartGame()">RESTART</button>
+  </div>
+
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+
+/* -------------------------------------------------------
+   BASIC THREE.JS SETUP
+------------------------------------------------------- */
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color(0x87b8df);
+
+scene.fog = new THREE.Fog(
+  0x87b8df,
+  90,
+  360
+);
+
+const camera = new THREE.PerspectiveCamera(
+  65,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  600
+);
+
+camera.position.set(0, 5, 11);
+
+const renderer = new THREE.WebGLRenderer({
+  antialias: true
+});
+
+renderer.setPixelRatio(
+  Math.min(window.devicePixelRatio, 2)
+);
+
+renderer.setSize(
+  window.innerWidth,
+  window.innerHeight
+);
+
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+document
+  .getElementById("game")
+  .appendChild(renderer.domElement);
+
+
+/* -------------------------------------------------------
+   LIGHTING
+------------------------------------------------------- */
+
+const hemi = new THREE.HemisphereLight(
+  0xc9e8ff,
+  0x555555,
+  2.0
+);
+
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(
+  0xffffff,
+  3
+);
+
+sun.position.set(
+  -50,
+  100,
+  40
+);
+
+sun.castShadow = true;
+
+sun.shadow.mapSize.width = 2048;
+sun.shadow.mapSize.height = 2048;
+
+sun.shadow.camera.left = -100;
+sun.shadow.camera.right = 100;
+sun.shadow.camera.top = 100;
+sun.shadow.camera.bottom = -100;
+
+scene.add(sun);
+
+
+/* -------------------------------------------------------
+   GAME VARIABLES
+------------------------------------------------------- */
+
+let car;
+let carReady = false;
+
+let speed = 0;
+let distance = 0;
+
+let crashed = false;
+
+const maxSpeed = 1.25;
+const acceleration = 0.018;
+const braking = 0.035;
+const friction = 0.008;
+
+const roadWidth = 18;
+const laneWidth = 6;
+
+const keys = {};
+
+const traffic = [];
+const buildings = [];
+const streetLights = [];
+const trafficLights = [];
+
+let roadSegments = [];
+let stripeSegments = [];
+
+
+/* -------------------------------------------------------
+   INPUT
+------------------------------------------------------- */
+
+window.addEventListener("keydown", e => {
+
+  keys[e.key.toLowerCase()] = true;
+
+  if (
+    [
+      "arrowup",
+      "arrowdown",
+      "arrowleft",
+      "arrowright",
+      " "
+    ].includes(e.key.toLowerCase())
+  ) {
+    e.preventDefault();
+  }
+
+});
+
+window.addEventListener("keyup", e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+
+/* -------------------------------------------------------
+   MATERIAL HELPERS
+------------------------------------------------------- */
+
+function mat(color, roughness = 0.8) {
+
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness
+  });
+
+}
+
+
+/* -------------------------------------------------------
+   GROUND
+------------------------------------------------------- */
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(800, 800),
+  mat(0x4f7045)
+);
+
+ground.rotation.x = -Math.PI / 2;
+
+ground.position.y = -0.03;
+
+ground.receiveShadow = true;
+
+scene.add(ground);
+
+
+/* -------------------------------------------------------
+   ROAD
+------------------------------------------------------- */
+
+const road = new THREE.Mesh(
+  new THREE.PlaneGeometry(
+    roadWidth,
+    800
+  ),
+  mat(0x4b4b4b)
+);
+
+road.rotation.x = -Math.PI / 2;
+
+road.position.y = 0;
+
+road.receiveShadow = true;
+
+scene.add(road);
+
+
+/* -------------------------------------------------------
+   WHITE CENTER LINE
+------------------------------------------------------- */
+
+for (let z = -390; z < 400; z += 10) {
+
+  const line = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      0.18,
+      0.035,
+      5
+    ),
+    mat(0xffffff)
+  );
+
+  line.position.set(
+    0,
+    0.025,
+    z
+  );
+
+  scene.add(line);
+
+  roadSegments.push(line);
+}
+
+
+/* -------------------------------------------------------
+   RED + WHITE EDGE STRIPES
+------------------------------------------------------- */
+
+function createEdgeStripe(x, z, color) {
+
+  const stripe = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      0.8,
+      0.09,
+      4
+    ),
+    mat(color)
+  );
+
+  stripe.position.set(
+    x,
+    0.055,
+    z
+  );
+
+  stripe.rotation.y =
+    Math.PI / 2;
+
+  scene.add(stripe);
+
+  stripeSegments.push(stripe);
+}
+
+for (let z = -390; z < 400; z += 4) {
+
+  const color =
+    Math.floor(z / 4) % 2 === 0
+      ? 0xffffff
+      : 0xd71920;
+
+  createEdgeStripe(
+    -roadWidth / 2,
+    z,
+    color
+  );
+
+  createEdgeStripe(
+    roadWidth / 2,
+    z,
+    color
+  );
+}
+
+
+/* -------------------------------------------------------
+   SIDEWALK
+------------------------------------------------------- */
+
+for (const x of [
+  -roadWidth / 2 - 1.5,
+  roadWidth / 2 + 1.5
+]) {
+
+  const sidewalk = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      3,
+      0.15,
+      800
+    ),
+    mat(0x858585)
+  );
+
+  sidewalk.position.set(
+    x,
+    0.06,
+    0
+  );
+
+  sidewalk.receiveShadow = true;
+
+  scene.add(sidewalk);
+}
+
+
+/* -------------------------------------------------------
+   BUILDINGS
+------------------------------------------------------- */
+
+function createBuilding(x, z) {
+
+  const width =
+    5 + Math.random() * 8;
+
+  const depth =
+    5 + Math.random() * 10;
+
+  const height =
+    8 + Math.random() * 35;
+
+  const colors = [
+    0x788493,
+    0x9b7564,
+    0x64748b,
+    0x9ca3af,
+    0x59636e,
+    0xb08370
+  ];
+
+  const building = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      width,
+      height,
+      depth
+    ),
+    mat(
+      colors[
+        Math.floor(
+          Math.random() * colors.length
+        )
+      ]
+    )
+  );
+
+  building.position.set(
+    x,
+    height / 2,
